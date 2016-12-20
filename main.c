@@ -52,7 +52,7 @@ const float radius = 2;
 float raytraceStep(float yaw, float pitch){
     float dist = 0;
     const float delta = .1;
-    vec3 pos = {.d = {0, 0, 0}};
+    vec3 pos = {0, 0, 0};
     vec3 deltaVec = aimToVec(yaw, pitch);
 
     for(; dist < rayDist; dist += delta){
@@ -233,7 +233,7 @@ int main(int argc, char **argv){
         int pitch;
         SDL_LockTexture(texture, NULL, (void **) &pixels, &pitch);
 
-#define precision 20
+#define precision 10
 
         transformMatrix = identityMatrix;
         matrix3 rotateMatrix = {.d = {
@@ -269,7 +269,7 @@ int main(int argc, char **argv){
                 yaw = atan(yaw);
                 pitch = atan(pitch);
 
-                float dist = raytraceStep(yaw, pitch);
+                float dist = raytraceToSpheres(yaw, pitch);
                 /*float dist = raytraceStep(yaw, pitch);*/
                 unsigned char r = map(dist, 0, 30, 255, 0);
                 unsigned char g = map(dist, 0, 30, 255, 0);
