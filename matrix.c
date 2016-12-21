@@ -2,6 +2,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+#define ND(DIM) (DIM + 1)
+
 #define MATR(DIM, indicies) \
  \
 typedef union vec ## DIM{ \
@@ -12,6 +14,9 @@ typedef union vec ## DIM{ \
 } vec ## DIM; \
  \
 typedef union matrix ## DIM{ \
+    struct { \
+        vec ## DIM indicies; \
+    }; \
     vec ## DIM row[DIM]; \
     float d[DIM][DIM]; \
 } matrix ## DIM; \
@@ -99,6 +104,16 @@ vec ## DIM normalize ## DIM(const vec ## DIM vec){ \
     } \
     return norm; \
 } \
+ \
+matrix ## DIM identity ## DIM(){ \
+    matrix ## DIM new; \
+    for(size_t i = 0; i < DIM; i++){ \
+        for(size_t k = 0; k < DIM; k++){ \
+            new.d[i][k] = i == k ? 1 : 0; \
+        } \
+    } \
+    return new; \
+} \
 
 #define comma ,
 
@@ -111,8 +126,8 @@ MATR(4, x comma y comma z comma w)
 vec3 aimToVec(float yaw, float pitch){
     vec3 result;
     result.x = cos(pitch) * sin(yaw);
-    result.y = cos(pitch) * cos(yaw);
-    result.z = sin(pitch);
+    result.y = sin(pitch);
+    result.z = cos(pitch) * cos(yaw);
     return result;
 }
 
@@ -126,4 +141,29 @@ vec3 randomVec3(){
     float yaw = randomFloat() * TAU;
     float pitch = randomFloat() * TAU;
     return aimToVec(yaw, pitch);
+}
+
+vec3 dehomogonize4(const vec4 vec){
+    vec3 new;
+    new.x = vec.x;
+    new.y = vec.y;
+    new.z = vec.z;
+    return new;
+}
+
+vec4 homogonize3(const vec3 vec){
+    vec4 new;
+    new.x = vec.x;
+    new.y = vec.y;
+    new.z = vec.z;
+    new.w = 1;
+    return new;
+}
+
+matrix4 homoTrans(const vec3 vec){
+    matrix4 matrix = identity4();
+    matrix.x.w = vec.x;
+    matrix.y.w = vec.y;
+    matrix.z.w = vec.z;
+    return matrix;
 }

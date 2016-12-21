@@ -24,22 +24,9 @@ float map(float val, float stval, float enval, float newst, float newen){
     return newrange * pct + newst;
 }
 
-float distsq(const vec3 a, const vec3 b){
-    float x, y, z;
-    x = a.x - b.x;
-    y = a.y - b.y;
-    z = a.z - b.z;
-    return x*x + y*y + z*z;
-}
+matrix4 transformMatrix;
 
-matrix3 transformMatrix;
-matrix3 identityMatrix = {.row ={
-    {.d = {1, 0, 0}},
-    {.d = {0, 1, 0}},
-    {.d = {0, 0, 1}},
-}};
-
-vec3 spheres[10] = {
+vec3 spheres[1] = {
     {0, 0, 10}
 };
 
@@ -57,7 +44,7 @@ float raytraceStep(float yaw, float pitch){
 
     for(; dist < rayDist; dist += delta){
         for(size_t i = 0; i < numspheres; i++){
-            if(distsq(realSpheres[i], pos) < radius*radius){
+            if(length3(addVec3(scaleVec3(pos, -1), realSpheres[i])) < radius*radius){
                 return sqrt(dist);
             }
         }
@@ -70,6 +57,7 @@ float raytraceToSpheres(float yaw, float pitch){
     float min = rayDist;
     for(size_t i = 0; i < numspheres; i++){
         vec3 circle = realSpheres[i];
+        if(circle.z < 0) continue;
         float distxz = circle.x - tan(-yaw) * circle.z;
         float distyz = circle.y - tan(pitch) * circle.z;
         /*float disty = 0;*/
@@ -126,7 +114,7 @@ int main(int argc, char **argv){
     printf("Testt\n");
     printVec3(test);
     printf("\nIMatr\n");
-    printMatrix3(identityMatrix);
+    printMatrix4(identity4());
 
     const matrix3 trans = {.d = {
         {2, 5, 0},
@@ -144,8 +132,8 @@ int main(int argc, char **argv){
     printf("\nSHOULD ");
     printVec3(intendedResult);
 
-    printf("\nTrans\n");
-    printMatrix3(multMatMat3(trans, identityMatrix));
+    /*printf("\nTrans\n");*/
+    /*printMatrix3(multMatMat3(trans, identityMatrix));*/
 
     printf("\n\n");
     printVec2(multMatVec2(
@@ -156,9 +144,9 @@ int main(int argc, char **argv){
     printVec2((const vec2) {.d = {17, 39}});
 
 
-    for(size_t i = 0; i < numspheres; i++){
-        spheres[i] = scaleVec3(randomVec3(), randomFloat()*15 + 5);
-    }
+    /*for(size_t i = 0; i < numspheres; i++){*/
+        /*spheres[i] = scaleVec3(randomVec3(), randomFloat()*15 + 5);*/
+    /*}*/
 
     if(SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO) < 0){
         printf("SDL failed to start: %s", SDL_GetError());
@@ -211,8 +199,19 @@ int main(int argc, char **argv){
                 break;
                 case SDL_SCANCODE_W:{
                     vec3 diff = aimToVec(offset, yoffset);
-                    /*charPos = addVec3(charPos, scaleVec3(diff, .1));*/
-                    charPos.z -= .1;
+                    charPos = addVec3(charPos, scaleVec3(diff, .1));
+                } break;
+                case SDL_SCANCODE_S:{
+                    vec3 diff = aimToVec(offset, yoffset);
+                    charPos = addVec3(charPos, scaleVec3(diff, -.1));
+                } break;
+                case SDL_SCANCODE_D:{
+                    charPos.x += cos(offset) * .1;
+                    charPos.z -= sin(offset) * .1;
+                } break;
+                case SDL_SCANCODE_A:{
+                    charPos.x -= cos(offset) * .1;
+                    charPos.z -= sin(offset) * .1;
                 } break;
                 case SDL_SCANCODE_Q:
                     goto CLEANUP;
@@ -226,40 +225,56 @@ int main(int argc, char **argv){
             }
             if(yoffset < -PI/2) yoffset = -PI/2;
             if(yoffset >  PI/2) yoffset =  PI/2;
-            /*printf("View: [%6f %6f]          \r", offset, yoffset);*/
+
+
+            /*vec3 diff = aimToVec(offset, yoffset);*/
+            /*printf("View: ");*/
+            /*[>printVec3(diff);<]*/
+            /*printf("yaw %f, pit %f", offset, yoffset);*/
+            /*printf(" Pos: ", offset, yoffset);*/
+            /*printVec3(charPos);*/
+            /*printf("\r");*/
         }
 
         uint32_t *pixels;
         int pitch;
         SDL_LockTexture(texture, NULL, (void **) &pixels, &pitch);
 
+
+        vec4 homospheres[numspheres];
+        for(size_t i = 0; i < numspheres; i++){
+            homospheres[i] = homogonize3(spheres[i]);
+        }
+
+#define TRANSFORM 1
+#if TRANSFORM
+        transformMatrix = homoTrans(charPos);
+
+        matrix4 rotateMatrix = {.d = {
+            {1, 0, 0, 0},
+            {0, cos(yoffset), -sin(yoffset), 0},
+            {0, sin(yoffset), cos(yoffset), 0},
+            {0, 0, 0, 1}
+        }};
+        transformMatrix = multMatMat4(transformMatrix, rotateMatrix);
+        matrix4 rotateMatrix2 = {.d = {
+            {cos(offset), 0, sin(offset), 0},
+            {0, 1, 0, 0},
+            {-sin(offset), 0, cos(offset), 0},
+            {0, 0, 0, 1}
+        }};
+        transformMatrix = multMatMat4(transformMatrix, rotateMatrix2);
+
+        for(size_t i = 0; i < numspheres; i++){
+            homospheres[i] = multMatVec4(transformMatrix, homospheres[i]);
+        }
+
+#endif
+        for(size_t i = 0; i < numspheres; i++){
+            realSpheres[i] = dehomogonize4(homospheres[i]);
+        }
+
 #define precision 10
-
-        transformMatrix = identityMatrix;
-        matrix3 rotateMatrix = {.d = {
-            {1, 0, 0},
-            {0, cos(yoffset), -sin(yoffset)},
-            {0, sin(yoffset), cos(yoffset)},
-        }};
-        transformMatrix = multMatMat3(transformMatrix, rotateMatrix);
-        matrix3 rotateMatrix2 = {.d = {
-            {cos(offset), 0, sin(offset)},
-            {0, 1, 0},
-            {-sin(offset), 0, cos(offset)},
-        }};
-        transformMatrix = multMatMat3(transformMatrix, rotateMatrix2);
-
-        for(size_t i = 0; i < numspheres; i++){
-            realSpheres[i] = spheres[i];
-        }
-
-        for(size_t i = 0; i < numspheres; i++){
-            realSpheres[i] = addVec3(charPos, realSpheres[i]);
-        }
-
-        for(size_t i = 0; i < numspheres; i++){
-            realSpheres[i] = multMatVec3(transformMatrix, realSpheres[i]);
-        }
 
         for(int y = 0; y < h; y += precision){
             for(int x = 0; x < w; x += precision){
@@ -284,14 +299,11 @@ int main(int argc, char **argv){
 
         /*//Draw unit vectors*/
 
-        /*[>i<]*/
+        /*vec3 aim = aimToVec(offset, yoffset);*/
+
         /*drawLine(pixels, h, 30, 30,*/
-                /*map(cos(offset), -1, 1, 10, 50), 30,*/
-                /*255, 255, 255);*/
-        /*[>j<]*/
-        /*drawLine(pixels, h, 30, 30,*/
-                /*30, map(cos(yoffset), -1, 1, 50, 10),*/
-                /*255, 255, 255);*/
+                /*aim.x/aim.z * 20 + 30, aim.y/aim.z * 20 + 30,*/
+                /*000, 000, 255);*/
 
         SDL_UnlockTexture(texture);
 
