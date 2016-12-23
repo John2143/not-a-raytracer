@@ -43,10 +43,17 @@ float map(float val, float stval, float enval, float newst, float newen){
 
 void blitVertLine(uint32_t *image, int h, int x, int y1, int y2){
     if(x < 0 || x > w) return;
-    int start = max(min(y1, y2), 0);
-    int end   = min(max(y1, y2), h);
-    for(int i = start; i < end; i++){
-        setPixel(image, h, x, i);
+    if(y2 < y1){
+        int t = y1;
+        y1 = y2;
+        y2 = t;
+    }
+
+    int ctr = y2 - y1;
+    uint32_t *ptr = &image[h * y1 + x];
+    while(ctr--){
+        *ptr = color;
+        ptr += h;
     }
 }
 
@@ -98,15 +105,18 @@ void blitTriangle(uint32_t *image, int h, matrix3 pos){
     }
 }
 
-#define numx 200
-#define numy 400
-#define scaling 1
-#define maxx (scaling * numx / 2)
+#define numx 50
+#define numy 50
+#define scaling 10
+#define maxx (numx / 2)
 #define minx -maxx
 
 vec3 shape[numx * 2];
+matrix3 allTriangles[numx * numy * 2];
+size_t triangleNum;
 int shapesize;
 
+#define beginMapping() triangleNum = 0;
 #define beginShape() shapesize = 0;
 #define vertex(x, y, z) shape[shapesize++] = (const vec3) {.d = {x, y, z}};
 #define endShape() \
@@ -115,7 +125,7 @@ int shapesize;
     int i = 0; \
     for(; i < shapesize - 2; i++) { \
         matrix3 matr = {.row = { shape[i], shape[i + 1], shape[i + 2] }}; \
-        blitTriangle(pixels, h, matr); \
+        allTriangles[triangleNum++] = matr; \
     } \
 }
 
@@ -126,7 +136,9 @@ void translateShapes(){
         vec4 hom = homogonize3(shape[i]);
         hom = multMatVec4(transformMatrix, hom);
         shape[i] = dehomogonize4(hom);
-        shape[i] = scaleVec3(shape[i], 1/shape[i].z);
+        float z = shape[i].z;
+        shape[i] = scaleVec3(shape[i], 1/z);
+        shape[i].z = z;
     }
 }
 
@@ -136,8 +148,34 @@ void translateShapes(){
         printf("\n"); \
     }
 
-float heightMap[numx][numy] = {0};
 uint32_t colors[numy] = {0};
+void renderShapes(uint32_t *pixels, vec3 charpos){
+    if(charpos.z < 1) goto SKIP_SORT;
+
+    for(size_t i = 0; i < triangleNum; i++){
+        float maxz = -.1;
+        size_t index = -1;
+        for(size_t j = i; j < triangleNum; j++){
+            if(allTriangles[j].x.z > maxz){
+                index = j;
+                maxz = allTriangles[j].x.z;
+            }
+        }
+        if(index == -1) break;
+        matrix3 temp = allTriangles[i];
+        allTriangles[i] = allTriangles[index];
+        allTriangles[index] = temp;
+    }
+
+SKIP_SORT:
+
+    for(size_t i = 0; i < triangleNum; i++){
+        setColor(rand() % 255, rand() % 255, rand() % 255);
+        blitTriangle(pixels, h, allTriangles[i]);
+    }
+}
+
+float heightMap[numx][numy] = {0};
 void newNoise(float offset);
 
 void draw(uint32_t *pixels, int h, float offset, float yoffset, vec3 charPos, int frames){
@@ -156,6 +194,7 @@ void draw(uint32_t *pixels, int h, float offset, float yoffset, vec3 charPos, in
     }};
 
     transformMatrix = id4;
+    /*transformMatrix = scaleMatrix4(transformMatrix, scaling);*/
     transformMatrix = multMatMat4(transformMatrix, rotateMatrixX);
     transformMatrix = multMatMat4(transformMatrix, rotateMatrixY);
     transformMatrix = multMatMat4(transformMatrix, homoTrans(scaleVec3(charPos, -1)));
@@ -163,16 +202,20 @@ void draw(uint32_t *pixels, int h, float offset, float yoffset, vec3 charPos, in
     for(int i = 0; i < w * h; i++){
         pixels[i] = 0xFF000000;
     }
-    for(int z = numy; z >= 1; z--){
+
+    beginMapping();
+    for(int z = numy - 1; z >= 1; z--){
         beginShape();
         color = colors[z];
         for(int x = 0; x < numx; x++){
-            float xx = map(x, 0, numx, minx, maxx);
-            vertex(xx * scaling, heightMap[x][z] * scaling, (z + 3) * scaling);
-            vertex(xx * scaling, heightMap[x][z - 1] * scaling, (z - 1 + 3) * scaling);
+            float xx = x * (maxx - minx) / (float) numx + minx;
+            vertex(xx, heightMap[x][z], (z + 3));
+            vertex(xx, heightMap[x][z - 1], (z + 2));
         }
         endShape();
     }
+    //Charpos is passed to disable z depth in some scenarios
+    renderShapes(pixels, charPos);
 }
 
 uint32_t hsv2rgb(float h, float s, float v )
@@ -292,7 +335,7 @@ float perlin2d(float x, float y, float freq, int depth)
 }
 
 void newNoise(float offset){
-#define maxvar 30
+#define maxvar 50
     for(int j = 0; j < numy; j++){
         for(int i = 0; i < numx; i++){
             heightMap[i][j] = map(perlin2d(i, j + offset, .01, 7), 0, 1, -maxvar, maxvar);
@@ -375,7 +418,7 @@ int main(int argc, char **argv){
     vec3 charPos = {0, maxvar, -maxvar};
 
     printf("\n\n");
-    SDL_CaptureMouse(1);
+    /*SDL_CaptureMouse(1);*/
     SDL_ShowCursor(0);
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
@@ -414,6 +457,7 @@ int main(int argc, char **argv){
                     charPos.x -= cos(offset);
                     charPos.z += sin(offset);
                 } break;
+                case SDL_SCANCODE_Z:
                 case SDL_SCANCODE_LSHIFT:{
                     charPos.y -= 1;
                 } break;
