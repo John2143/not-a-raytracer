@@ -5,98 +5,100 @@
 #include <stdint.h>
 #include <math.h>
 #include <time.h>
+
 #include <matrix.c>
+#include <util.c>
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 #define max(x, y) ((x) > (y) ? (x) : (y))
 
+//Window sizes
 int w = 1000, h = 1000;
+
+//the current drawing color
 uint32_t color = 0xFF000000;
 
-uint32_t col(int r, int g, int b){
-    uint32_t c = 0xFF000000;
-    c |= r << 16;
-    c |= g << 8;
-    c |= b << 0;
-    return c;
-}
-
+//deprecated, just invoke directly
 void setColor(int r, int g, int b){
     color = col(r, g, b);
 }
 
+//deprecated, but works fine
 void setPixel(uint32_t *image, int h, int x, int y){
     image[y * h + x] = color;
 }
 
+//TAU is define in matrix.c as 2PI
 #define PI 3.1415926
 
-float map(float val, float stval, float enval, float newst, float newen){
-    if(val >= enval) return newen;
-    if(val <= stval) return newst;
-    float range = enval - stval;
-    if(range == 0) return newst;
-    float pct = (val - stval) / range;
-    float newrange = newen - newst;
-    return newrange * pct + newst;
-}
-
 void blitVertLine(uint32_t *image, int h, int x, int y1, int y2){
+    //Prevent segfaulting for bad calls
+    // (mabye it should panic?)
     if(x < 0 || x > w) return;
+
+    //y1 should be the top one
     if(y2 < y1){
         int t = y1;
         y1 = y2;
         y2 = t;
     }
 
+    //number of pixels to blit
     int ctr = y2 - y1;
+    //Starting pixel
     uint32_t *ptr = &image[h * y1 + x];
     while(ctr--){
+        //blit
         *ptr = color;
+        //Move down one pixel
         ptr += h;
     }
 }
 
 void blitTriangle(uint32_t *image, int h, matrix3 pos){
     for(size_t i = 0; i < 3; i++){
+        //Dont draw triangles that are even partially offscreen (todo)
         if(pos.row[i].z < 0 ||
            pos.row[i].x < -1 || pos.row[i].x > 1 ||
            pos.row[i].y < -1 || pos.row[i].y > 1) return;
+
+        //Translate the screen coordinates to pixel positions
         pos.row[i].x += 1;
         pos.row[i].x *= w/2;
         pos.row[i].y += 1;
         pos.row[i].y *= h/2;
         pos.row[i].y  = h - pos.row[i].y;
     }
-    if(pos.x.z < 0 || pos.y.z < 0 || pos.z.z < 0) return;
+
+    //'sort' the triangle so the rows go from left to right
     if(pos.y.x < pos.x.x){
         vec3 temp = pos.x;
         pos.x = pos.y;
         pos.y = temp;
     }
-
     if(pos.z.x < pos.y.x){
         vec3 temp = pos.y;
         pos.y = pos.z;
         pos.z = temp;
     }
-
     if(pos.y.x < pos.x.x){
         vec3 temp = pos.x;
         pos.x = pos.y;
         pos.y = temp;
     }
 
-    /*printMatrix3(pos);*/
-    /*printf("\n\n");*/
 
+    //TODO remove map
     int x;
+
+    //Draw the left half, interpolating between vertexes
     for(x = pos.x.x; x <= pos.y.x; x++){
         blitVertLine(image, h, x,
             map(x, pos.x.x, pos.y.x, pos.x.y, pos.y.y),
             map(x, pos.x.x, pos.z.x, pos.x.y, pos.z.y)
         );
     }
+    //Draw the right half the same way
     for(; x < pos.z.x; x++){
         blitVertLine(image, h, x,
             map(x, pos.y.x, pos.z.x, pos.y.y, pos.z.y),
@@ -105,26 +107,33 @@ void blitTriangle(uint32_t *image, int h, matrix3 pos){
     }
 }
 
-#define numx 50
-#define numy 50
-#define scaling 10
+#define numx 100
+#define numy 100
+#define scaling 1
 #define maxx (numx / 2)
 #define minx -maxx
 
+//Hold the individual triangle strips
 vec3 shape[numx * 2];
+size_t shapesize; //number of shapes
+//Holds a matrix of viewmapped triangles
 matrix3 allTriangles[numx * numy * 2];
 size_t triangleNum;
-int shapesize;
 
+//reset the triangle list
 #define beginMapping() triangleNum = 0;
+//Reset the shape list
 #define beginShape() shapesize = 0;
+//Add a vertex to the triangle strip
 #define vertex(x, y, z) shape[shapesize++] = (const vec3) {.d = {x, y, z}};
+//move all the vertexes via the projection and view map, then add them all
+//in sequence to the triangle list
 #define endShape() \
 { \
     translateShapes(); \
     int i = 0; \
     for(; i < shapesize - 2; i++) { \
-        matrix3 matr = {.row = { shape[i], shape[i + 1], shape[i + 2] }}; \
+        matrix3 matr = {.row = {shape[i], shape[i + 1], shape[i + 2]}}; \
         allTriangles[triangleNum++] = matr; \
     } \
 }
@@ -133,12 +142,19 @@ matrix4 transformMatrix, id4;
 
 void translateShapes(){
     for(int i = 0; i < shapesize; i++) {
+        //Translate all vertexes into their actual world coordinates
         vec4 hom = homogonize3(shape[i]);
         hom = multMatVec4(transformMatrix, hom);
         shape[i] = dehomogonize4(hom);
+
+        //Translate the vertexes into screen coordinates. This is done
+        //by dividng every vertex by their z coord in order to get screen
+        //coordinate (-1 to 1)
+        //Blit triange will take this range and produce pixel coordinates
+        //Rendershapes will perform depth mapping using the z coordinate
         float z = shape[i].z;
-        shape[i] = scaleVec3(shape[i], 1/z);
-        shape[i].z = z;
+        shape[i].x /= z;
+        shape[i].y /= z;
     }
 }
 
@@ -148,29 +164,40 @@ void translateShapes(){
         printf("\n"); \
     }
 
+/*int cmptriangles(const matrix3 *a, const matrix3 *b){*/
+int cmptriangles(const void *a, const void *b){
+    //Compare z coordinates
+    return ((const matrix3 *) a)->z.z
+         < ((const matrix3 *) b)->z.z;
+}
+
 uint32_t colors[numy] = {0};
 void renderShapes(uint32_t *pixels, vec3 charpos){
+    //We do not need to depth map if the triangles are already back to front
     if(charpos.z < 1) goto SKIP_SORT;
 
-    for(size_t i = 0; i < triangleNum; i++){
-        float maxz = -.1;
-        size_t index = -1;
-        for(size_t j = i; j < triangleNum; j++){
-            if(allTriangles[j].x.z > maxz){
-                index = j;
-                maxz = allTriangles[j].x.z;
-            }
-        }
-        if(index == -1) break;
-        matrix3 temp = allTriangles[i];
-        allTriangles[i] = allTriangles[index];
-        allTriangles[index] = temp;
-    }
+    /*for(size_t i = 0; i < triangleNum; i++){*/
+        /*float maxz = -.1;*/
+        /*size_t index = -1;*/
+        /*for(size_t j = i; j < triangleNum; j++){*/
+            /*if(allTriangles[j].x.z > maxz){*/
+                /*index = j;*/
+                /*maxz = allTriangles[j].x.z;*/
+            /*}*/
+        /*}*/
+        /*if(index == -1) break;*/
+        /*matrix3 temp = allTriangles[i];*/
+        /*allTriangles[i] = allTriangles[index];*/
+        /*allTriangles[index] = temp;*/
+    /*}*/
+    qsort(allTriangles, triangleNum, sizeof(*allTriangles), cmptriangles);
 
 SKIP_SORT:
 
     for(size_t i = 0; i < triangleNum; i++){
-        setColor(rand() % 255, rand() % 255, rand() % 255);
+        //Draw every triangle
+        //TODO make color correspond to row again now that depth mapping works
+        color = colors[i / (numx * 2)];
         blitTriangle(pixels, h, allTriangles[i]);
     }
 }
@@ -179,7 +206,10 @@ float heightMap[numx][numy] = {0};
 void newNoise(float offset);
 
 void draw(uint32_t *pixels, int h, float offset, float yoffset, vec3 charPos, int frames){
+    //Move world by some amount
     newNoise((numx * numy / 1000 ) * frames / 30.);
+
+    //Math magic ahead
     matrix4 rotateMatrixX = {.d = {
         {1, 0, 0, 0},
         {0, cos(yoffset), -sin(yoffset), 0},
@@ -198,142 +228,47 @@ void draw(uint32_t *pixels, int h, float offset, float yoffset, vec3 charPos, in
     transformMatrix = multMatMat4(transformMatrix, rotateMatrixX);
     transformMatrix = multMatMat4(transformMatrix, rotateMatrixY);
     transformMatrix = multMatMat4(transformMatrix, homoTrans(scaleVec3(charPos, -1)));
+    //Magic over: A vector as been created that can take any vec4 and move it
+    //to where it should be for the camera (facing the z+ axis at 0,0,0)
 
     for(int i = 0; i < w * h; i++){
+        //Black with alpha
         pixels[i] = 0xFF000000;
     }
 
+    //Clear the triangle array
     beginMapping();
     for(int z = numy - 1; z >= 1; z--){
+        //Start a new triangle strip
         beginShape();
-        color = colors[z];
         for(int x = 0; x < numx; x++){
+            //Calculate world value x
             float xx = x * (maxx - minx) / (float) numx + minx;
+            //vertex(x, y, z) will be automatically transformed after endshape
+            //into a projection map (retaining Z coordinate)
+            //The strip looks like this because each dot is connected.
+            //inside the loop produces one top dot and one bottom dot, then
+            //the next iteration will connect them.
+            // * * * * *
+            // |/|/|/|/|
+            // * * * * *
+            //The endShape function connects the top and bottom rows
+            //automatically producing actual triangles instead of just a zaggy
+            //line
+            // *-*-*-*-*
+            // |/|/|/|/|
+            // *-*-*-*-*
             vertex(xx, heightMap[x][z], (z + 3));
             vertex(xx, heightMap[x][z - 1], (z + 2));
         }
         endShape();
     }
-    //Charpos is passed to disable z depth in some scenarios
+    //Charpos is passed to disable z depth testing in some scenarios
     renderShapes(pixels, charPos);
 }
 
-uint32_t hsv2rgb(float h, float s, float v )
-{
-    int i;
-    float f, p, q, t;
-    float r, g, b;
-    if(s == 0) {
-        v *= 255;
-        return col(v, v, v);
-    }
-    h /= 60;
-    i = floor( h );
-    f = h - i;
-    p = v * ( 1 - s );
-    q = v * ( 1 - s * f );
-    t = v * ( 1 - s * ( 1 - f ) );
-    switch( i ) {
-        case 0:
-            r = v;
-            g = t;
-            b = p;
-            break;
-        case 1:
-            r = q;
-            g = v;
-            b = p;
-            break;
-        case 2:
-            r = p;
-            g = v;
-            b = t;
-            break;
-        case 3:
-            r = p;
-            g = q;
-            b = v;
-            break;
-        case 4:
-            r = t;
-            g = p;
-            b = v;
-            break;
-        default:
-            r = v;
-            g = p;
-            b = q;
-    }
-    return col(r * 255, g * 255, b * 255);
-}
-
-static int SEED = 0;
-
-static int hash[] = {208,34,231,213,32,248,233,56,161,78,24,140,71,48,140,254,245,255,247,247,40,
-                     185,248,251,245,28,124,204,204,76,36,1,107,28,234,163,202,224,245,128,167,204,
-                     9,92,217,54,239,174,173,102,193,189,190,121,100,108,167,44,43,77,180,204,8,81,
-                     70,223,11,38,24,254,210,210,177,32,81,195,243,125,8,169,112,32,97,53,195,13,
-                     203,9,47,104,125,117,114,124,165,203,181,235,193,206,70,180,174,0,167,181,41,
-                     164,30,116,127,198,245,146,87,224,149,206,57,4,192,210,65,210,129,240,178,105,
-                     228,108,245,148,140,40,35,195,38,58,65,207,215,253,65,85,208,76,62,3,237,55,89,
-                     232,50,217,64,244,157,199,121,252,90,17,212,203,149,152,140,187,234,177,73,174,
-                     193,100,192,143,97,53,145,135,19,103,13,90,135,151,199,91,239,247,33,39,145,
-                     101,120,99,3,186,86,99,41,237,203,111,79,220,135,158,42,30,154,120,67,87,167,
-                     135,176,183,191,253,115,184,21,233,58,129,233,142,39,128,211,118,137,139,255,
-                     114,20,218,113,154,27,127,246,250,1,8,198,250,209,92,222,173,21,88,102,219};
-
-int noise2(int x, int y)
-{
-    int tmp = hash[(y + SEED) % 256];
-    return hash[(tmp + x) % 256];
-}
-
-float lin_inter(float x, float y, float s)
-{
-    return x + s * (y-x);
-}
-
-float smooth_inter(float x, float y, float s)
-{
-    return lin_inter(x, y, s * s * (3-2*s));
-}
-
-float noise2d(float x, float y)
-{
-    int x_int = x;
-    int y_int = y;
-    float x_frac = x - x_int;
-    float y_frac = y - y_int;
-    int s = noise2(x_int, y_int);
-    int t = noise2(x_int+1, y_int);
-    int u = noise2(x_int, y_int+1);
-    int v = noise2(x_int+1, y_int+1);
-    float low = smooth_inter(s, t, x_frac);
-    float high = smooth_inter(u, v, x_frac);
-    return smooth_inter(low, high, y_frac);
-}
-
-float perlin2d(float x, float y, float freq, int depth)
-{
-    float xa = x*freq;
-    float ya = y*freq;
-    float amp = 1.0;
-    float fin = 0;
-    float div = 0.0;
-
-    int i;
-    for(i=0; i<depth; i++)
-    {
-        div += 256 * amp;
-        fin += noise2d(xa, ya) * amp;
-        amp /= 2;
-        xa *= 2;
-        ya *= 2;
-    }
-
-    return fin/div;
-}
-
+//Generate the heightmap at an offset using perlin noise
+//This can be optimized extremely well by reducing the number of calls to noise
 void newNoise(float offset){
 #define maxvar 50
     for(int j = 0; j < numy; j++){
@@ -347,13 +282,16 @@ int main(int argc, char **argv){
     (void) argc; (void) argv;
     srand(time(NULL));
 
+    //Initialize an identity matrix that will be used often
     id4 = identity4();
 
+    //Define the color for each triangle strip
     for(int j = 0; j < numy; j++){
         float hue = map(j, 0, numy, 0, 360);
         colors[j] = hsv2rgb(hue, .5, 1);
     }
 
+#if TESTMATRIX
     const vec3 test = {.d = {1, 2, 3}};
     printf("Testt\n");
     printVec3(test);
@@ -387,10 +325,9 @@ int main(int argc, char **argv){
     printf("\n");
     printVec2((const vec2) {.d = {17, 39}});
 
+    if(1) return;
+#endif
 
-    /*for(size_t i = 0; i < numspheres; i++){*/
-        /*spheres[i] = scaleVec3(randomVec3(), randomFloat()*15 + 5);*/
-    /*}*/
 
     if(SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO) < 0){
         printf("SDL failed to start: %s", SDL_GetError());
@@ -410,11 +347,22 @@ int main(int argc, char **argv){
 
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
     SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, w, h);
-    float aspectRatio = w/h;
+
+    //TODO calculate viewmatrix using below variables
+    /*float aspectRatio = w/h;*/
     /*float vfov = PI/4;*/
     /*float hfov = aspectRatio * vfov;*/
+
+    //Camera details: yaw is measured with 0 = facing +z, PI/2 facing +x.
+    //This means most times where I use yaw I will actually use -yaw because
+    //sin works with clockwise being negative, not positive as many operations
+    //expect
+    //
+    //offset = yaw, yoffset = pitch
+    //roll is always 0
     float offset = 0;
     float yoffset = -PI/7;
+    //Pos in 3d space
     vec3 charPos = {0, maxvar, -maxvar};
 
     printf("\n\n");
@@ -474,6 +422,8 @@ int main(int argc, char **argv){
                 yoffset -= event.motion.yrel * .005;
             break;
             }
+
+            //Clamp pitch vector to prevent confusing movement
             if(yoffset < -PI/2) yoffset = -PI/2;
             if(yoffset >  PI/2) yoffset =  PI/2;
 
@@ -487,14 +437,18 @@ int main(int argc, char **argv){
             /*printf("\r");*/
         }
 
+        //obtain a raw pointer to the video memory
         uint32_t *pixels;
         int pitch;
         SDL_LockTexture(texture, NULL, (void **) &pixels, &pitch);
 
+        //TODO h has been made global
+        // parameter i is the framecounter
         draw(pixels, h, offset, yoffset, charPos, i);
 
         SDL_UnlockTexture(texture);
 
+        //Blit the texture to the renderer (send to graphics card) and render
         SDL_Rect r;
         r.x = r.y = 0; r.w = w, r.h = h;
         SDL_Rect r2 = r;
