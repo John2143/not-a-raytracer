@@ -176,20 +176,6 @@ void renderShapes(uint32_t *pixels, vec3 charpos){
     //We do not need to depth map if the triangles are already back to front
     if(charpos.z < 1) goto SKIP_SORT;
 
-    /*for(size_t i = 0; i < triangleNum; i++){*/
-        /*float maxz = -.1;*/
-        /*size_t index = -1;*/
-        /*for(size_t j = i; j < triangleNum; j++){*/
-            /*if(allTriangles[j].x.z > maxz){*/
-                /*index = j;*/
-                /*maxz = allTriangles[j].x.z;*/
-            /*}*/
-        /*}*/
-        /*if(index == -1) break;*/
-        /*matrix3 temp = allTriangles[i];*/
-        /*allTriangles[i] = allTriangles[index];*/
-        /*allTriangles[index] = temp;*/
-    /*}*/
     qsort(allTriangles, triangleNum, sizeof(*allTriangles), cmptriangles);
 
 SKIP_SORT:
