@@ -98,6 +98,7 @@ void blitTriangle(uint32_t *image, matrix3 pos){
             map(x, pos.x.x, pos.z.x, pos.x.y, pos.z.y)
         );
     }
+
     //Draw the right half the same way
     for(; x < pos.z.x; x++){
         blitVertLine(image, x,
@@ -107,8 +108,8 @@ void blitTriangle(uint32_t *image, matrix3 pos){
     }
 }
 
-#define numx 1000
-#define numy 1000
+#define numx 250
+#define numy 250
 #define scaling 1
 #define maxx (numx / 2)
 #define minx -maxx
@@ -170,7 +171,7 @@ int cmptriangles(const void *a, const void *b){
     float fa = ((const matrix3 *) a)->x.z;
     float fb = ((const matrix3 *) b)->x.z;
 
-    return (fa > fb) - (fa < fb);
+    return (fa < fb) - (fa > fb);
 }
 
 int hasSorted = 0;
@@ -195,7 +196,7 @@ void newNoise(float offset);
 
 void draw(uint32_t *pixels, float offset, float yoffset, vec3 charPos, int frames){
     //Move world by some amount
-    /*newNoise((numx * numy / 1000 ) * frames / 30.);*/
+    newNoise((numy / 100) * frames / 30.);
 
     //Math magic ahead
     matrix4 rotateMatrixX = {.d = {
@@ -266,10 +267,13 @@ void newNoise(float offset){
     }
 }
 
+#define numKeys 300
+char keysDown[numKeys] = {};
+
 int main(int argc, char **argv){
     (void) argc; (void) argv;
     srand(time(NULL));
-    /*newNoise(0);*/
+    newNoise(0);
 
     //Initialize an identity matrix that will be used often
     id4 = identity4();
@@ -360,52 +364,17 @@ int main(int argc, char **argv){
     SDL_SetRelativeMouseMode(SDL_TRUE);
 
     for(int i = 0;;i++){
+        char keyDown = 1;
         for(SDL_Event event; SDL_PollEvent(&event);){
             switch(event.type){
             case SDL_QUIT:
                 goto CLEANUP;
-            case SDL_KEYDOWN:
-                switch(event.key.keysym.scancode){
-                case SDL_SCANCODE_LEFT:
-                    offset -= .1;
-                break;
-                case SDL_SCANCODE_RIGHT:
-                    offset += .1;
-                break;
-                case SDL_SCANCODE_UP:
-                    yoffset += .1;
-                break;
-                case SDL_SCANCODE_DOWN:
-                    yoffset -= .1;
-                break;
-                case SDL_SCANCODE_W:{
-                    vec3 diff = aimToVec(offset, yoffset);
-                    charPos = addVec3(charPos, scaleVec3(diff, 1));
-                } break;
-                case SDL_SCANCODE_S:{
-                    vec3 diff = aimToVec(offset, yoffset);
-                    charPos = addVec3(charPos, scaleVec3(diff, -1));
-                } break;
-                case SDL_SCANCODE_D:{
-                    charPos.x += cos(offset);
-                    charPos.z -= sin(offset);
-                } break;
-                case SDL_SCANCODE_A:{
-                    charPos.x -= cos(offset);
-                    charPos.z += sin(offset);
-                } break;
-                case SDL_SCANCODE_Z:
-                case SDL_SCANCODE_LSHIFT:{
-                    charPos.y -= 1;
-                } break;
-                case SDL_SCANCODE_SPACE:{
-                    charPos.y += 1;
-                } break;
-                case SDL_SCANCODE_Q:
-                    goto CLEANUP;
-                default:;
-                }
-            break;
+            case SDL_KEYUP: keyDown = 0;
+            case SDL_KEYDOWN:{
+                int code = event.key.keysym.scancode;
+                if(code >= numKeys) break;
+                keysDown[code] = keyDown;
+            } break;
             case SDL_MOUSEMOTION:
                 offset += event.motion.xrel * .005;
                 yoffset -= event.motion.yrel * .005;
@@ -416,7 +385,6 @@ int main(int argc, char **argv){
             if(yoffset < -PI/2) yoffset = -PI/2;
             if(yoffset >  PI/2) yoffset =  PI/2;
 
-
             /*vec3 diff = aimToVec(offset, yoffset);*/
             /*printf("View: ");*/
             /*[>[>printVec3(diff);<]<]*/
@@ -424,6 +392,32 @@ int main(int argc, char **argv){
             /*printf(" Pos: ", offset, yoffset);*/
             /*printVec3(charPos);*/
             /*printf("\r");*/
+        }
+
+        if(keysDown[SDL_SCANCODE_W]){
+            vec3 diff = aimToVec(offset, yoffset);
+            charPos = addVec3(charPos, scaleVec3(diff, 1));
+        }
+        if(keysDown[SDL_SCANCODE_S]){
+            vec3 diff = aimToVec(offset, yoffset);
+            charPos = addVec3(charPos, scaleVec3(diff, -1));
+        }
+        if(keysDown[SDL_SCANCODE_D]){
+            charPos.x += cos(offset);
+            charPos.z -= sin(offset);
+        }
+        if(keysDown[SDL_SCANCODE_A]){
+            charPos.x -= cos(offset);
+            charPos.z += sin(offset);
+        }
+        if(keysDown[SDL_SCANCODE_Z] || keysDown[SDL_SCANCODE_LSHIFT]){
+            charPos.y -= 1;
+        };
+        if(keysDown[SDL_SCANCODE_SPACE]){
+            charPos.y += 1;
+        };
+        if(keysDown[SDL_SCANCODE_Q]){
+            goto CLEANUP;
         }
 
         //obtain a raw pointer to the video memory
