@@ -24,14 +24,14 @@ void setColor(int r, int g, int b){
 }
 
 //deprecated, but works fine
-void setPixel(uint32_t *image, int h, int x, int y){
+void setPixel(uint32_t *image, int x, int y){
     image[y * h + x] = color;
 }
 
 //TAU is define in matrix.c as 2PI
 #define PI 3.1415926
 
-void blitVertLine(uint32_t *image, int h, int x, int y1, int y2){
+void blitVertLine(uint32_t *image, int x, int y1, int y2){
     //Prevent segfaulting for bad calls
     // (mabye it should panic?)
     if(x < 0 || x > w) return;
@@ -55,7 +55,7 @@ void blitVertLine(uint32_t *image, int h, int x, int y1, int y2){
     }
 }
 
-void blitTriangle(uint32_t *image, int h, matrix3 pos){
+void blitTriangle(uint32_t *image, matrix3 pos){
     for(size_t i = 0; i < 3; i++){
         //Dont draw triangles that are even partially offscreen (todo)
         if(pos.row[i].z < 0 ||
@@ -93,22 +93,22 @@ void blitTriangle(uint32_t *image, int h, matrix3 pos){
 
     //Draw the left half, interpolating between vertexes
     for(x = pos.x.x; x <= pos.y.x; x++){
-        blitVertLine(image, h, x,
+        blitVertLine(image, x,
             map(x, pos.x.x, pos.y.x, pos.x.y, pos.y.y),
             map(x, pos.x.x, pos.z.x, pos.x.y, pos.z.y)
         );
     }
     //Draw the right half the same way
     for(; x < pos.z.x; x++){
-        blitVertLine(image, h, x,
+        blitVertLine(image, x,
             map(x, pos.y.x, pos.z.x, pos.y.y, pos.z.y),
             map(x, pos.x.x, pos.z.x, pos.x.y, pos.z.y)
         );
     }
 }
 
-#define numx 100
-#define numy 100
+#define numx 1000
+#define numy 1000
 #define scaling 1
 #define maxx (numx / 2)
 #define minx -maxx
@@ -131,7 +131,7 @@ size_t triangleNum;
 #define endShape() \
 { \
     translateShapes(); \
-    int i = 0; \
+    size_t i = 0; \
     for(; i < shapesize - 2; i++) { \
         matrix3 matr = {.row = {shape[i], shape[i + 1], shape[i + 2]}}; \
         allTriangles[triangleNum++] = matr; \
@@ -141,7 +141,7 @@ size_t triangleNum;
 matrix4 transformMatrix, id4;
 
 void translateShapes(){
-    for(int i = 0; i < shapesize; i++) {
+    for(size_t i = 0; i < shapesize; i++) {
         //Translate all vertexes into their actual world coordinates
         vec4 hom = homogonize3(shape[i]);
         hom = multMatVec4(transformMatrix, hom);
@@ -167,33 +167,35 @@ void translateShapes(){
 /*int cmptriangles(const matrix3 *a, const matrix3 *b){*/
 int cmptriangles(const void *a, const void *b){
     //Compare z coordinates
-    return ((const matrix3 *) a)->z.z
-         < ((const matrix3 *) b)->z.z;
+    float fa = ((const matrix3 *) a)->x.z;
+    float fb = ((const matrix3 *) b)->x.z;
+
+    return (fa > fb) - (fa < fb);
 }
 
-uint32_t colors[numy] = {0};
+int hasSorted = 0;
+uint32_t colors[numy * numx] = {0};
 void renderShapes(uint32_t *pixels, vec3 charpos){
     //We do not need to depth map if the triangles are already back to front
     if(charpos.z < 1) goto SKIP_SORT;
-
-    qsort(allTriangles, triangleNum, sizeof(*allTriangles), cmptriangles);
+    qsort(allTriangles, triangleNum, sizeof(matrix3), cmptriangles);
 
 SKIP_SORT:
 
     for(size_t i = 0; i < triangleNum; i++){
         //Draw every triangle
         //TODO make color correspond to row again now that depth mapping works
-        color = colors[i / (numx * 2)];
-        blitTriangle(pixels, h, allTriangles[i]);
+        color = colors[i / 2];
+        blitTriangle(pixels, allTriangles[i]);
     }
 }
 
-float heightMap[numx][numy] = {0};
+float heightMap[numx][numy];
 void newNoise(float offset);
 
-void draw(uint32_t *pixels, int h, float offset, float yoffset, vec3 charPos, int frames){
+void draw(uint32_t *pixels, float offset, float yoffset, vec3 charPos, int frames){
     //Move world by some amount
-    newNoise((numx * numy / 1000 ) * frames / 30.);
+    /*newNoise((numx * numy / 1000 ) * frames / 30.);*/
 
     //Math magic ahead
     matrix4 rotateMatrixX = {.d = {
@@ -267,13 +269,14 @@ void newNoise(float offset){
 int main(int argc, char **argv){
     (void) argc; (void) argv;
     srand(time(NULL));
+    /*newNoise(0);*/
 
     //Initialize an identity matrix that will be used often
     id4 = identity4();
 
     //Define the color for each triangle strip
-    for(int j = 0; j < numy; j++){
-        float hue = map(j, 0, numy, 0, 360);
+    for(int j = 0; j < numy * numx; j++){
+        float hue = map(j, 0, numx * numy, 0, 360);
         colors[j] = hsv2rgb(hue, .5, 1);
     }
 
@@ -349,7 +352,7 @@ int main(int argc, char **argv){
     float offset = 0;
     float yoffset = -PI/7;
     //Pos in 3d space
-    vec3 charPos = {0, maxvar, -maxvar};
+    vec3 charPos = {.d = {0, maxvar, -maxvar}};
 
     printf("\n\n");
     /*SDL_CaptureMouse(1);*/
@@ -430,7 +433,7 @@ int main(int argc, char **argv){
 
         //TODO h has been made global
         // parameter i is the framecounter
-        draw(pixels, h, offset, yoffset, charPos, i);
+        draw(pixels, offset, yoffset, charPos, i);
 
         SDL_UnlockTexture(texture);
 
