@@ -192,11 +192,11 @@ SKIP_SORT:
 }
 
 float heightMap[numx][numy];
-void newNoise(float offset);
+void nextNoise();
 
 void draw(uint32_t *pixels, float offset, float yoffset, vec3 charPos, int frames){
     //Move world by some amount
-    newNoise((numy / 100) * frames / 30.);
+    nextNoise();
 
     //Math magic ahead
     matrix4 rotateMatrixX = {.d = {
@@ -256,15 +256,34 @@ void draw(uint32_t *pixels, float offset, float yoffset, vec3 charPos, int frame
     renderShapes(pixels, charPos);
 }
 
+#define maxvar 50
+
 //Generate the heightmap at an offset using perlin noise
 //This can be optimized extremely well by reducing the number of calls to noise
 void newNoise(float offset){
-#define maxvar 50
     for(int j = 0; j < numy; j++){
         for(int i = 0; i < numx; i++){
             heightMap[i][j] = map(perlin2d(i, j + offset, .01, 7), 0, 1, -maxvar, maxvar);
         }
     }
+}
+
+void nextNoise(){
+    static float offset = 0;
+    //check if arrays can be safely memcpy'd to themselves TODO
+
+    //shift array toward the origin
+    for(int i = 0; i < numx; i++){
+        for(int j = 0; j < numy - 1; j++){
+            heightMap[i][j] = heightMap[i][j + 1];
+        }
+    }
+
+    //Generate new terrain at the far side
+    for(int i = 0; i < numx; i++){
+        heightMap[i][numy - 1] = map(perlin2d(i, numy - 1 + offset, .01, 7), 0, 1, -maxvar, maxvar);
+    }
+    offset += 1;
 }
 
 #define numKeys 300
