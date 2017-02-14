@@ -6,11 +6,16 @@
 #include <math.h>
 #include <time.h>
 
-#include <matrix.c>
-#include <util.c>
+#include "threadpool.h"
+#include "matrix.c"
+#include "util.c"
 
 #define min(x, y) ((x) < (y) ? (x) : (y))
 #define max(x, y) ((x) > (y) ? (x) : (y))
+
+#define NUM_THREADS 8
+
+threadpool_t *threadpool;
 
 //Window sizes
 int w = 1000, h = 1000;
@@ -303,6 +308,7 @@ int main(int argc, char **argv){
         colors[j] = hsv2rgb(hue, .5, 1);
     }
 
+
 #if TESTMATRIX
     const vec3 test = {.d = {1, 2, 3}};
     printf("Testt\n");
@@ -340,6 +346,7 @@ int main(int argc, char **argv){
     if(1) return;
 #endif
 
+    threadpool = threadpool_create(NUM_THREADS, NUM_THREADS << 1, 0);
 
     if(SDL_Init(SDL_INIT_EVENTS | SDL_INIT_VIDEO) < 0){
         printf("SDL failed to start: %s", SDL_GetError());
@@ -459,6 +466,7 @@ int main(int argc, char **argv){
     }
 CLEANUP:
 
+    threadpool_destroy(threadpool, threadpool_graceful);
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 0;

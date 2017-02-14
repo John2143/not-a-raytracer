@@ -2,8 +2,6 @@
 #include <math.h>
 #include <stdlib.h>
 
-#define ND(DIM) (DIM + 1)
-
 #define MATR(DIM, indicies) \
  \
 typedef union vec ## DIM{ \
